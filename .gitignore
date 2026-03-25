@@ -1,8 +1,11 @@
 ### Linux ###
 *~
-
+# visualization results
+visualizations/
 # user experiments directory
 YOLOX_outputs/
+checkpoints/
+pretrained/
 datasets/
 # do not ignore datasets under yolox/data
 !*yolox/data/datasets/

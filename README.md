@@ -9,6 +9,41 @@ This repo is an implementation of PyTorch version YOLOX, there is also a [MegEng
 
 <img src="assets/git_fig.png" width="1000" >
 
+## About This Fork
+
+This repository is an extension of the original [YOLOX](https://github.com/Megvii-BaseDetection/YOLOX) project. The upstream project is still the main reference for the core detector, training engine, and deployment stack.
+
+This fork focuses on our added work on top of YOLOX, especially:
+- EMT dataset support
+- ROAD Waymo dataset support
+- custom dataset conversion utilities
+- annotation visualization and inspection helpers
+
+The upstream README content is still useful and remains below, but the sections in this README that matter most for this fork are the fork-specific setup and workflow notes.
+
+## Fork-Specific Additions
+
+- Added an EMT experiment file at [yolox/exp/yolox_emt.py](./yolox/exp/yolox_emt.py) and a thin custom exp wrapper at [exps/example/custom/yolo_emt.py](./exps/example/custom/yolo_emt.py).
+- Added COCO conversion utilities for custom datasets:
+  - [emt_to_coco.py](./emt_to_coco.py)
+  - [road_to_coco.py](./road_to_coco.py)
+- Added a support-scripts folder at [tools/support_scripts](./tools/support_scripts) for reusable dataset helpers and inspection tools.
+- Added an annotation visualizer at [tools/support_scripts/visualize_annotations.py](./tools/support_scripts/visualize_annotations.py) that supports both KITTI TXT labels and COCO JSON labels.
+- EMT conversion currently expects KITTI-style tracking labels under `datasets/emt/emt_annotations/labels_full` and writes YOLOX-ready COCO JSON files to:
+  - `datasets/emt/emt_annotations/train.json`
+  - `datasets/emt/emt_annotations/test.json`
+
+## Recommended Reading Order
+
+If you are working in this fork, use this order:
+
+1. Read the fork-specific sections in this README first.
+2. Use the scripts under [tools/support_scripts](./tools/support_scripts) for conversion and visualization.
+3. Use the EMT experiment files in:
+   - [yolox/exp/yolox_emt.py](./yolox/exp/yolox_emt.py)
+   - [exps/example/custom/yolo_emt.py](./exps/example/custom/yolo_emt.py)
+4. Refer back to the original YOLOX sections below for generic installation, training, evaluation, and deployment behavior.
+
 ## Updates!!
 * 【2023/02/28】 We support assignment visualization tool, see doc [here](./docs/assignment_visualization.md).
 * 【2022/04/14】 We support jit compile op.
@@ -62,6 +97,126 @@ This repo is an implementation of PyTorch version YOLOX, there is also a [MegEng
 </details>
 
 ## Quick Start
+
+### EMT Workflow
+
+The current EMT pipeline in this fork is:
+
+1. Keep EMT frames under:
+   - `datasets/emt/frames`
+   - `datasets/emt/test_frames`
+2. Keep KITTI-style labels under:
+   - `datasets/emt/emt_annotations/labels_full`
+3. Convert KITTI labels to COCO JSON before training:
+
+```shell
+python emt_to_coco.py
+```
+
+or
+
+```shell
+python tools/support_scripts/emt_to_coco.py
+```
+
+This writes:
+- `datasets/emt/emt_annotations/train.json`
+- `datasets/emt/emt_annotations/test.json`
+
+The generated COCO files are what the EMT experiment reads during training and evaluation.
+
+To train with the EMT experiment:
+
+```shell
+python -m yolox.tools.train -f exps/example/custom/yolo_emt.py -d 1 -b 2 --fp16 -o
+```
+
+Adjust `-d` and `-b` for your machine.
+
+To fine-tune from pretrained YOLOX weights, pass the checkpoint with `-c`. Since the EMT experiment uses `depth = 1.33` and `width = 1.25`, the matching upstream starting point is `YOLOX-X`.
+
+```shell
+  python -m yolox.tools.train \
+  -f exps/example/custom/yolo_emt.py \
+  -d 1 \
+  -b 2 \
+  --fp16 \
+  -o \
+  -c pretrained/yolox_l.pth
+
+```
+
+The EMT experiment now saves outputs under:
+
+```text
+checkpoints/yolox_emt/
+```
+
+Typical checkpoint files inside that folder are:
+- `latest_ckpt.pth`
+- `last_epoch_ckpt.pth`
+- `best_ckpt.pth`
+- `epoch_<n>_ckpt.pth` when history saving is enabled
+
+### Visualizing Labels
+
+Visualize one KITTI-labeled sample:
+
+```shell
+python tools/support_scripts/visualize_annotations.py \
+  --label-format kitti \
+  --labels-path datasets/emt/emt_annotations/labels_full \
+  --images-root datasets/emt/frames \
+  --mode sample \
+  --video-name video_054604 \
+  --frame-id 149
+```
+
+Visualize one COCO-labeled sample:
+
+```shell
+python tools/support_scripts/visualize_annotations.py \
+  --label-format coco \
+  --labels-path datasets/emt/emt_annotations/train.json \
+  --images-root datasets/emt/frames \
+  --mode sample \
+  --video-name video_054604 \
+  --frame-id 149
+```
+
+Render a whole video folder:
+
+```shell
+python tools/support_scripts/visualize_annotations.py \
+  --label-format kitti \
+  --labels-path datasets/emt/emt_annotations/labels_full \
+  --images-root datasets/emt/frames \
+  --mode video \
+  --video-name video_054604 \
+  --save-video
+```
+
+### ROAD Waymo Workflow
+
+Convert ROAD Waymo annotations to COCO JSON:
+
+```shell
+python road_to_coco.py --road-dir datasets/road_waymo
+```
+
+or
+
+```shell
+python tools/support_scripts/road_to_coco.py --road-dir datasets/road_waymo
+```
+
+If you want YOLOX-style split folders created under the output dataset root, add:
+
+```shell
+python road_to_coco.py --road-dir datasets/road_waymo --prepare-yolox-layout
+```
+
+This fork keeps the original YOLOX training and evaluation flow, but uses custom dataset conversion and experiment files for our datasets.
 
 <details>
 <summary>Installation</summary>
