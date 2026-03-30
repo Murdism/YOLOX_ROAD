@@ -9,6 +9,8 @@ Examples:
 ```bash
 python tools/support_scripts/emt_to_coco.py
 python tools/support_scripts/road_to_coco.py --road-dir datasets/road_waymo
+python tools/support_scripts/road_to_coco.py --road-dir datasets/road_waymo --match-emt
+python tools/support_scripts/road_to_coco.py --road-dir datasets/road_waymo --no-match-emt
 python tools/support_scripts/visualize_annotations.py \
   --label-format kitti \
   --labels-path datasets/emt/emt_annotations/labels_full \

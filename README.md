@@ -146,6 +146,26 @@ To fine-tune from pretrained YOLOX weights, pass the checkpoint with `-c`. Since
 
 ```
 
+To train the Road Waymo experiment with the custom Road config:
+
+```shell
+python -m yolox.tools.train \
+  -f exps/example/custom/yolo_road_waymo.py \
+  -d 1 \
+  -b 2 \
+  --fp16 \
+  -o \
+  -c pretrained/yolox_l.pth
+```
+
+Explanation of the Road Waymo training command:
+- `-f exps/example/custom/yolo_road_waymo.py`: experiment description file for Road Waymo.
+- `-d 1`: use one GPU/device for training.
+- `-b 2`: batch size for training.
+- `--fp16`: enable mixed precision (AMP) training.
+- `-o`: occupy GPU memory first before training starts.
+- `-c pretrained/yolox_l.pth`: initialize the model from the pretrained YOLOX-L checkpoint.
+
 The EMT experiment now saves outputs under:
 
 ```text
@@ -199,16 +219,18 @@ python tools/support_scripts/visualize_annotations.py \
 ### ROAD Waymo Workflow
 
 Convert ROAD Waymo annotations to COCO JSON:
-
-```shell
-python road_to_coco.py --road-dir datasets/road_waymo
-```
-
-or
-
 ```shell
 python tools/support_scripts/road_to_coco.py --road-dir datasets/road_waymo
 ```
+
+Note:
+- `datasets/road_waymo/road_waymo_trainval_v1.0.json` is the original ROAD Waymo source annotation file.
+- This repo also includes converted COCO-style split files at `datasets/road_waymo/annotations/train.json` and `datasets/road_waymo/annotations/val.json`.
+- The `yolo_road_waymo` experiment expects those COCO JSON files, not the raw ROAD source format.
+- By default, the Road experiment loads images from `datasets/road_waymo/train_frames` for both training and validation, while `train.json` and `val.json` select which frames belong to each split.
+- Current converted counts are:
+  - train: `115602` images, `2515836` annotations
+  - val: `37932` images, `788517` annotations
 
 If you want YOLOX-style split folders created under the output dataset root, add:
 
