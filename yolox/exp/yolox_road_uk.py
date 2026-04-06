@@ -25,20 +25,20 @@ from yolox.exp.yolox_base import Exp as YOLOXBaseExp
 from yolox.utils import wait_for_the_master
 
 
-class RoadDataset(CacheDataset):
+class RoadUkDataset(CacheDataset):
     def __init__(
         self,
         data_dir=None,
         json_file="train.json",
-        name="train_frames",
+        name="train/train_frames",
         img_size=(960, 960),
         preproc=None,
         cache=False,
         cache_type="ram",
-        annotation_dir="road_waymo_annotations",
+        annotation_dir="train/coco_annotations/",
     ):
         if data_dir is None:
-            data_dir = os.path.join(get_yolox_datadir(), "road_waymo")
+            data_dir = os.path.join(get_yolox_datadir(), "road_uk")
 
         self.data_dir = data_dir
         self.json_file = json_file
@@ -148,61 +148,68 @@ class Exp(YOLOXBaseExp):
         super().__init__()
 
         self.output_dir = "./checkpoints"
-        self.exp_name = "yolox_road_waymo"
+        self.exp_name = "yolox_road_uk"
 
-        self.num_classes = 9  # adjust for your dataset
+        self.num_classes = 9 #change based on your dataset setup
         self.depth = 1.33
         self.width = 1.25
 
-        self.data_dir = os.path.join(get_yolox_datadir(), "road_waymo")
-        self.annotation_dir = "road_waymo_annotations"
+        self.data_dir = os.path.join(get_yolox_datadir(), "road_uk")
+        self.annotation_dir = "train/coco_annotations/"
         self.train_ann = "train.json"
         self.val_ann = "val.json"
         self.test_ann = "val.json"
-        self.train_name = "train_frames"
+        self.train_name = "train/train_frames"
         self.val_name = "train_frames"
         self.test_name = "train_frames"
 
-        # Input sizes
+        # self.input_size = (960, 960)
+        # self.test_size = (960, 960)
+        # self.random_size = (18, 32)
+
+        # self.max_epoch = 120
+        # self.print_interval = 20
+        # self.eval_interval = 5
+        # self.test_conf = 0.002
+        # self.nmsthre = 0.7
+        # self.no_aug_epochs = 10
+        # self.basic_lr_per_img = 0.001 / 2.0
+        # self.warmup_epochs = 1
+
+        # self.train_max_labels = 500
+        # self.mosaic_max_labels = 1000
+
+
+
         self.input_size = (960, 960)
         self.test_size = (960, 960)
-        self.random_size = (18, 28)
 
-        # Training schedule
-        self.max_epoch = 180           # increased for convergence
+        # Better multi-scale range (more aggressive for small objects)
+        self.random_size = (20, 36)   # was (18, 32)
+
+        self.max_epoch = 180          # was 120
         self.print_interval = 20
         self.eval_interval = 5
-        self.no_aug_epochs = 15
-        self.warmup_epochs = 3
 
-        # Confidence / NMS
-        self.test_conf = 0.01
-        self.nmsthre = 0.6
+        # Slightly higher confidence to reduce noise
+        self.test_conf = 0.01         # was 0.002
+        self.nmsthre = 0.65           # was 0.7
 
-        # Learning rate
-        self.basic_lr_per_img = 0.001 / 3.0
-        self.momentum = 0.9
-        self.weight_decay = 5e-4
-        self.ema = True
+        # Longer fine-tuning phase without augmentation
+        self.no_aug_epochs = 15       # was 10
 
-        # Label caps
-        self.train_max_labels = 300
-        self.mosaic_max_labels = 600
+        # Slightly safer LR for stability at high res
+        self.basic_lr_per_img = 0.001 / 2.5   # was /2.0
 
-        # Augmentation fixes
-        self.enable_mixup = False
-        self.mixup_prob = 0.0
-        self.mosaic_scale = (0.5, 1.5)
-        self.degrees = 5.0
-        self.translate = 0.05
-        self.shear = 1.0
+        # Longer warmup improves convergence at large input sizes
+        self.warmup_epochs = 3        # was 1
 
-        # Mosaic & mixup probabilities
-        self.mosaic_prob = 1.0
-        self.mixup_scale = (0.5, 1.0)  # safe range for small objects
+        # Label caps (more realistic unless extremely crowded scenes)
+        self.train_max_labels = 300   # was 500
+        self.mosaic_max_labels = 600  # was 1000
 
     def get_dataset(self, cache=False, cache_type="ram"):
-        return RoadDataset(
+        return RoadUkDataset(
             data_dir=self.data_dir,
             json_file=self.train_ann,
             name=self.train_name,
@@ -217,50 +224,7 @@ class Exp(YOLOXBaseExp):
             annotation_dir=self.annotation_dir,
         )
 
-    # def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
-    #     if self.dataset is None:
-    #         with wait_for_the_master():
-    #             assert cache_img is None, (
-    #                 "cache_img must be None if you didn't create self.dataset before launch"
-    #             )
-    #             self.dataset = self.get_dataset(cache=False, cache_type=cache_img)
-
-    #     self.dataset = MosaicDetection(
-    #         dataset=self.dataset,
-    #         mosaic=not no_aug,
-    #         img_size=self.input_size,
-    #         preproc=TrainTransform(
-    #             max_labels=self.mosaic_max_labels,
-    #             flip_prob=self.flip_prob,
-    #             hsv_prob=self.hsv_prob,
-    #         ),
-    #         degrees=self.degrees,
-    #         translate=self.translate,
-    #         mosaic_scale=self.mosaic_scale,
-    #         mixup_scale=self.mixup_scale,
-    #         shear=self.shear,
-    #         enable_mixup=self.enable_mixup,
-    #         mosaic_prob=self.mosaic_prob,
-    #         mixup_prob=self.mixup_prob,
-    #     )
-
-    #     if is_distributed:
-    #         batch_size = batch_size // dist.get_world_size()
-
-    #     sampler = InfiniteSampler(len(self.dataset), seed=self.seed if self.seed else 0)
-    #     batch_sampler = YoloBatchSampler(
-    #         sampler=sampler,
-    #         batch_size=batch_size,
-    #         drop_last=False,
-    #         mosaic=not no_aug,
-    #     )
-
-    #     dataloader_kwargs = {"num_workers": self.data_num_workers, "pin_memory": True}
-    #     dataloader_kwargs["batch_sampler"] = batch_sampler
-    #     dataloader_kwargs["worker_init_fn"] = worker_init_reset_seed
-    #     return DataLoader(self.dataset, **dataloader_kwargs)
     def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
-        # Load dataset if not already created
         if self.dataset is None:
             with wait_for_the_master():
                 assert cache_img is None, (
@@ -268,7 +232,6 @@ class Exp(YOLOXBaseExp):
                 )
                 self.dataset = self.get_dataset(cache=False, cache_type=cache_img)
 
-        # Wrap with MosaicDetection for augmentations
         self.dataset = MosaicDetection(
             dataset=self.dataset,
             mosaic=not no_aug,
@@ -280,15 +243,14 @@ class Exp(YOLOXBaseExp):
             ),
             degrees=self.degrees,
             translate=self.translate,
-            mosaic_scale=self.mosaic_scale,   # fixed scale applied
-            mixup_scale=self.mixup_scale,     # fixed safe range
+            mosaic_scale=self.mosaic_scale,
+            mixup_scale=self.mixup_scale,
             shear=self.shear,
-            enable_mixup=self.enable_mixup,   # MixUp on/off
-            mosaic_prob=self.mosaic_prob,     # Mosaic probability
-            mixup_prob=self.mixup_prob,       # MixUp probability
+            enable_mixup=self.enable_mixup,
+            mosaic_prob=self.mosaic_prob,
+            mixup_prob=self.mixup_prob,
         )
 
-        # Adjust batch size for distributed training
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
 
@@ -297,21 +259,18 @@ class Exp(YOLOXBaseExp):
             sampler=sampler,
             batch_size=batch_size,
             drop_last=False,
-            mosaic=not no_aug,  # Mosaic enabled during batch sampling
+            mosaic=not no_aug,
         )
 
-        dataloader_kwargs = {
-            "num_workers": self.data_num_workers,
-            "pin_memory": True,
-            "batch_sampler": batch_sampler,
-            "worker_init_fn": worker_init_reset_seed,
-        }
-
+        dataloader_kwargs = {"num_workers": self.data_num_workers, "pin_memory": True}
+        dataloader_kwargs["batch_sampler"] = batch_sampler
+        dataloader_kwargs["worker_init_fn"] = worker_init_reset_seed
         return DataLoader(self.dataset, **dataloader_kwargs)
+
     def get_eval_dataset(self, **kwargs):
         testdev = kwargs.get("testdev", False)
         legacy = kwargs.get("legacy", False)
-        return RoadDataset(
+        return RoadUkDataset(
             data_dir=self.data_dir,
             json_file=self.val_ann if not testdev else self.test_ann,
             name=self.val_name if not testdev else self.test_name,

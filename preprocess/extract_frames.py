@@ -33,10 +33,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="extract frame from videos")
     p.add_argument("data_dir", type=str, help="Video directory where videos are saved.")
     args = p.parse_args()
-    videos_dir = os.path.join(args.data_dir, "test_videos")
+    videos_dir = os.path.join(args.data_dir, "train/videos")
     videofiles = os.listdir(videos_dir)
     videofiles = [af for af in videofiles if af.endswith(".mp4")]
-    images_dir = os.path.join(args.data_dir, "rgb-images-test")
+    images_dir = os.path.join(args.data_dir, "train_frames")
     print("NUMBER OF VIDEO FILES are:::>", len(videofiles))
     for i, videofile in enumerate(videofiles):
         print("\n %d videofile " % i, videofile, "\n")

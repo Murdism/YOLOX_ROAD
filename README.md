@@ -145,7 +145,26 @@ To fine-tune from pretrained YOLOX weights, pass the checkpoint with `-c`. Since
   -c pretrained/yolox_l.pth
 
 ```
-
+```shell 
+python -m yolox.tools.train \
+  -f exps/example/custom/yolo_road_uk.py \
+  -d 1 \
+  -b 12 \
+  --fp16 \
+  -o \
+  -c pretrained/yolox_l.pth \
+  --cache
+```
+```shell 
+python -m yolox.tools.train \
+  -f exps/example/custom/yolo_road.py \
+  -d 1 \
+  -b 12 \
+  --fp16 \
+  -o \
+  -c pretrained/yolox_l.pth \
+  --cache
+```
 To train the Road Waymo experiment with the custom Road config:
 
 ```shell
