@@ -142,7 +142,6 @@ class RoadUkDataset(CacheDataset):
         img = self.read_img(index)
         return img, copy.deepcopy(label), origin_image_size, np.array([id_])
 
-
 class Exp(YOLOXBaseExp):
     def __init__(self):
         super().__init__()
@@ -163,50 +162,43 @@ class Exp(YOLOXBaseExp):
         self.val_name = "train_frames"
         self.test_name = "train_frames"
 
-        # self.input_size = (960, 960)
-        # self.test_size = (960, 960)
-        # self.random_size = (18, 32)
-
-        # self.max_epoch = 120
-        # self.print_interval = 20
-        # self.eval_interval = 5
-        # self.test_conf = 0.002
-        # self.nmsthre = 0.7
-        # self.no_aug_epochs = 10
-        # self.basic_lr_per_img = 0.001 / 2.0
-        # self.warmup_epochs = 1
-
-        # self.train_max_labels = 500
-        # self.mosaic_max_labels = 1000
-
-
-
+        # Input sizes
         self.input_size = (960, 960)
         self.test_size = (960, 960)
+        self.random_size = (18, 28)
 
-        # Better multi-scale range (more aggressive for small objects)
-        self.random_size = (20, 36)   # was (18, 32)
-
-        self.max_epoch = 180          # was 120
+        # Training schedule
+        self.max_epoch = 180           # increased for convergence
         self.print_interval = 20
         self.eval_interval = 5
+        self.no_aug_epochs = 15
+        self.warmup_epochs = 3
 
-        # Slightly higher confidence to reduce noise
-        self.test_conf = 0.01         # was 0.002
-        self.nmsthre = 0.65           # was 0.7
+        # Confidence / NMS
+        self.test_conf = 0.01
+        self.nmsthre = 0.6
 
-        # Longer fine-tuning phase without augmentation
-        self.no_aug_epochs = 15       # was 10
+        # Learning rate
+        self.basic_lr_per_img = 0.001 / 3.0
+        self.momentum = 0.9
+        self.weight_decay = 5e-4
+        self.ema = True
 
-        # Slightly safer LR for stability at high res
-        self.basic_lr_per_img = 0.001 / 2.5   # was /2.0
+        # Label caps
+        self.train_max_labels = 300
+        self.mosaic_max_labels = 600
 
-        # Longer warmup improves convergence at large input sizes
-        self.warmup_epochs = 3        # was 1
+        # Augmentation fixes
+        self.enable_mixup = False
+        self.mixup_prob = 0.0
+        self.mosaic_scale = (0.5, 1.5)
+        self.degrees = 5.0
+        self.translate = 0.05
+        self.shear = 1.0
 
-        # Label caps (more realistic unless extremely crowded scenes)
-        self.train_max_labels = 300   # was 500
-        self.mosaic_max_labels = 600  # was 1000
+        # Mosaic & mixup probabilities
+        self.mosaic_prob = 1.0
+        self.mixup_scale = (0.5, 1.0)  # safe range for small objects
 
     def get_dataset(self, cache=False, cache_type="ram"):
         return RoadUkDataset(
@@ -223,8 +215,8 @@ class Exp(YOLOXBaseExp):
             cache_type=cache_type,
             annotation_dir=self.annotation_dir,
         )
-
     def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
+        # Load dataset if not already created
         if self.dataset is None:
             with wait_for_the_master():
                 assert cache_img is None, (
@@ -232,6 +224,7 @@ class Exp(YOLOXBaseExp):
                 )
                 self.dataset = self.get_dataset(cache=False, cache_type=cache_img)
 
+        # Wrap with MosaicDetection for augmentations
         self.dataset = MosaicDetection(
             dataset=self.dataset,
             mosaic=not no_aug,
@@ -243,14 +236,15 @@ class Exp(YOLOXBaseExp):
             ),
             degrees=self.degrees,
             translate=self.translate,
-            mosaic_scale=self.mosaic_scale,
-            mixup_scale=self.mixup_scale,
+            mosaic_scale=self.mosaic_scale,   # fixed scale applied
+            mixup_scale=self.mixup_scale,     # fixed safe range
             shear=self.shear,
-            enable_mixup=self.enable_mixup,
-            mosaic_prob=self.mosaic_prob,
-            mixup_prob=self.mixup_prob,
+            enable_mixup=self.enable_mixup,   # MixUp on/off
+            mosaic_prob=self.mosaic_prob,     # Mosaic probability
+            mixup_prob=self.mixup_prob,       # MixUp probability
         )
 
+        # Adjust batch size for distributed training
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
 
@@ -259,14 +253,17 @@ class Exp(YOLOXBaseExp):
             sampler=sampler,
             batch_size=batch_size,
             drop_last=False,
-            mosaic=not no_aug,
+            mosaic=not no_aug,  # Mosaic enabled during batch sampling
         )
 
-        dataloader_kwargs = {"num_workers": self.data_num_workers, "pin_memory": True}
-        dataloader_kwargs["batch_sampler"] = batch_sampler
-        dataloader_kwargs["worker_init_fn"] = worker_init_reset_seed
-        return DataLoader(self.dataset, **dataloader_kwargs)
+        dataloader_kwargs = {
+            "num_workers": self.data_num_workers,
+            "pin_memory": True,
+            "batch_sampler": batch_sampler,
+            "worker_init_fn": worker_init_reset_seed,
+        }
 
+        return DataLoader(self.dataset, **dataloader_kwargs)
     def get_eval_dataset(self, **kwargs):
         testdev = kwargs.get("testdev", False)
         legacy = kwargs.get("legacy", False)
