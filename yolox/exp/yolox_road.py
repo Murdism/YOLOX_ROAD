@@ -168,8 +168,12 @@ class Exp(YOLOXBaseExp):
         self.test_size = (960, 960)
         self.random_size = (18, 28)
 
+<<<<<<< Updated upstream
         # Training schedule
         self.max_epoch = 180           # increased for convergence
+=======
+        self.max_epoch = 120
+>>>>>>> Stashed changes
         self.print_interval = 20
         self.eval_interval = 5
         self.no_aug_epochs = 15
