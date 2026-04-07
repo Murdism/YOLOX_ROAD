@@ -14,22 +14,22 @@ def parse_args():
     parser.add_argument(
         "--road-dir",
         dest="road_dir",
-        default="datasets/road_uk",
+        default="datasets/road_uk/train",
         help="ROAD UK dataset root directory.",
     )
     parser.add_argument(
         "--output-dir",
-        default="datasets/road_uk/train/coco_annotations",
-        help="Output dataset root. Defaults to <road-dir>.",
+        default=None,
+        help="Output dataset root. Defaults to <road-dir>/coco_annotations.",
     )
     parser.add_argument(
         "--annotations-path",
         "--annotations-json",
         dest="annotations_path",
-        default="train/annotations/road_trainval_v1.0.json",
+        default="annotations/road_trainval_v1.0.json",
         help=(
             "Annotations JSON path (absolute or relative to --road-dir). "
-            "Default: train/annotations/road_trainval_v1.0.json"
+            "Default: annotations/road_trainval_v1.0.json"
         ),
     )
     parser.add_argument(
@@ -168,7 +168,8 @@ def convert_box(box, width, height):
         x2 *= width
         y1 *= height
         y2 *= height
-
+    else:
+     print(f"--------------warning: box with large coordinates {box} for image size ({width}, {height}) - treating as absolute!!!!")
     x1 = max(0.0, min(float(width), x1))
     x2 = max(0.0, min(float(width), x2))
     y1 = max(0.0, min(float(height), y1))
@@ -361,13 +362,27 @@ def main():
     train_split_ids = parse_split_ids(args.train_split, default_ids=[1, 2, 3])
     val_split_ids = parse_split_ids(args.val_split, default_ids=[3])
     road_dir = Path(args.road_dir)
-    output_dir = Path(args.output_dir) if args.output_dir else road_dir
+    output_dir = Path(args.output_dir) if args.output_dir else (road_dir / "coco_annotations")
     annotations_path = Path(args.annotations_path)
     if not annotations_path.is_absolute():
         annotations_path = road_dir / annotations_path
     frames_dir = Path(args.frames_dir)
     if not frames_dir.is_absolute():
         frames_dir = road_dir / frames_dir
+    if not annotations_path.exists():
+        # Backward-compatible fallback for road_dir=datasets/road_uk.
+        fallback_annotations = road_dir / "train" / args.annotations_path
+        if fallback_annotations.exists():
+            annotations_path = fallback_annotations
+    if not frames_dir.exists():
+        # Backward-compatible fallback for road_dir=datasets/road_uk.
+        fallback_frames = road_dir / "train" / args.frames_dir
+        if fallback_frames.exists():
+            frames_dir = fallback_frames
+    if not annotations_path.exists():
+        raise FileNotFoundError(f"Annotations file not found: {annotations_path}")
+    if not frames_dir.exists():
+        raise FileNotFoundError(f"Frames directory not found: {frames_dir}")
 
     print(f"Using train split ids: {sorted(train_split_ids)}")
     print(f"Using val split ids: {sorted(val_split_ids)}")

@@ -83,3 +83,56 @@ class InfiniteSampler(Sampler):
 
     def __len__(self):
         return self._size // self._world_size
+
+
+class WeightedInfiniteSampler(Sampler):
+    """
+    Infinite sampler with replacement using per-sample weights.
+    Useful for oversampling rare-class images without changing the dataset.
+    """
+
+    def __init__(
+        self,
+        weights,
+        shuffle: bool = True,
+        seed: Optional[int] = 0,
+        rank=0,
+        world_size=1,
+    ):
+        self._weights = torch.as_tensor(weights, dtype=torch.double)
+        assert self._weights.ndim == 1, "weights must be a 1D sequence"
+        assert len(self._weights) > 0, "weights must be non-empty"
+        assert torch.all(self._weights >= 0), "weights must be non-negative"
+        assert torch.any(self._weights > 0), "at least one weight must be positive"
+
+        self._size = len(self._weights)
+        self._shuffle = shuffle
+        self._seed = int(seed)
+        self._weights = self._weights / self._weights.sum()
+
+        if dist.is_available() and dist.is_initialized():
+            self._rank = dist.get_rank()
+            self._world_size = dist.get_world_size()
+        else:
+            self._rank = rank
+            self._world_size = world_size
+
+    def __iter__(self):
+        start = self._rank
+        yield from itertools.islice(
+            self._infinite_indices(), start, None, self._world_size
+        )
+
+    def _infinite_indices(self):
+        g = torch.Generator()
+        g.manual_seed(self._seed)
+        while True:
+            if self._shuffle:
+                yield from torch.multinomial(
+                    self._weights, self._size, replacement=True, generator=g
+                )
+            else:
+                yield from torch.arange(self._size)
+
+    def __len__(self):
+        return self._size // self._world_size

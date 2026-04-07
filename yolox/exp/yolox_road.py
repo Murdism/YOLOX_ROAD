@@ -15,6 +15,7 @@ from yolox.data import (
     MosaicDetection,
     TrainTransform,
     ValTransform,
+    WeightedInfiniteSampler,
     YoloBatchSampler,
     get_yolox_datadir,
     worker_init_reset_seed,
@@ -55,7 +56,9 @@ class RoadDataset(CacheDataset):
         self.class_ids = sorted(self.coco.getCatIds())
         self.cats = self.coco.loadCats(self.coco.getCatIds())
         self._classes = tuple([c["name"] for c in self.cats])
+        self.cat_id_to_name = {c["id"]: c["name"] for c in self.cats}
         self.annotations = self._load_coco_annotations()
+        self.image_class_sets = self._build_image_class_sets()
 
         path_filename = [os.path.join(name, anno[3]) for anno in self.annotations]
         super().__init__(
@@ -73,6 +76,43 @@ class RoadDataset(CacheDataset):
 
     def _load_coco_annotations(self):
         return [self.load_anno_from_ids(_ids) for _ids in self.ids]
+
+    def _build_image_class_sets(self):
+        image_class_sets = []
+        for img_id in self.ids:
+            anns = self.coco.imgToAnns.get(img_id, [])
+            image_class_sets.append(
+                {self.cat_id_to_name[ann["category_id"]] for ann in anns}
+            )
+        return image_class_sets
+
+    def build_image_sampling_weights(self, target_class_names, max_repeat_factor=8.0):
+        if not target_class_names:
+            return np.ones(self.num_imgs, dtype=np.float32), {}, {}
+
+        image_frequency = {class_name: 0 for class_name in self._classes}
+        for class_names in self.image_class_sets:
+            for class_name in class_names:
+                image_frequency[class_name] += 1
+
+        max_image_frequency = max(image_frequency.values()) if image_frequency else 1
+        repeat_factors = {}
+        for class_name in target_class_names:
+            freq = image_frequency.get(class_name, 0)
+            if freq <= 0:
+                repeat_factors[class_name] = 1.0
+                continue
+            repeat_factors[class_name] = float(
+                min(max_repeat_factor, max(1.0, np.sqrt(max_image_frequency / freq)))
+            )
+
+        weights = np.ones(self.num_imgs, dtype=np.float32)
+        for idx, class_names in enumerate(self.image_class_sets):
+            matched = [repeat_factors[name] for name in target_class_names if name in class_names]
+            if matched:
+                weights[idx] = max(matched)
+
+        return weights, image_frequency, repeat_factors
 
     def load_anno_from_ids(self, id_):
         im_ann = self.coco.loadImgs(id_)[0]
@@ -163,48 +203,34 @@ class Exp(YOLOXBaseExp):
         self.val_name = "train_frames"
         self.test_name = "train_frames"
 
-        # Input sizes
-        self.input_size = (960, 960)
-        self.test_size = (960, 960)
-        self.random_size = (18, 28)
+        self.input_size = (960, 1280)
+        self.test_size = (960, 1280)
 
-<<<<<<< Updated upstream
-        # Training schedule
-        self.max_epoch = 180           # increased for convergence
-=======
-        self.max_epoch = 120
->>>>>>> Stashed changes
-        self.print_interval = 20
-        self.eval_interval = 5
+        self.multiscale_range = 0
+        # remove self.random_size
+
+        self.basic_lr_per_img = 0.01 / 64.0
+        self.warmup_epochs = 5
         self.no_aug_epochs = 15
-        self.warmup_epochs = 3
 
-        # Confidence / NMS
-        self.test_conf = 0.01
-        self.nmsthre = 0.6
-
-        # Learning rate
-        self.basic_lr_per_img = 0.001 / 3.0
-        self.momentum = 0.9
-        self.weight_decay = 5e-4
-        self.ema = True
-
-        # Label caps
-        self.train_max_labels = 300
-        self.mosaic_max_labels = 600
-
-        # Augmentation fixes
         self.enable_mixup = False
         self.mixup_prob = 0.0
-        self.mosaic_scale = (0.5, 1.5)
-        self.degrees = 5.0
-        self.translate = 0.05
-        self.shear = 1.0
+        self.mosaic_prob = 0.3
+        self.mosaic_scale = (0.8, 1.2)
+        self.degrees = 2.0
+        self.translate = 0.03
+        self.shear = 0.5
 
-        # Mosaic & mixup probabilities
-        self.mosaic_prob = 1.0
-        self.mixup_scale = (0.5, 1.0)  # safe range for small objects
+        self.enable_rare_class_oversampling = True
+        self.oversample_target_classes = (
+            "Emergency_vehicle",
+            "Small_motorised_vehicle",
+            "Cyclist",
+        )
+        self.max_oversample_factor = 6.0
 
+        self.test_conf = 0.01
+        self.nmsthre = 0.65
     def get_dataset(self, cache=False, cache_type="ram"):
         return RoadDataset(
             data_dir=self.data_dir,
@@ -220,49 +246,6 @@ class Exp(YOLOXBaseExp):
             cache_type=cache_type,
             annotation_dir=self.annotation_dir,
         )
-
-    # def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
-    #     if self.dataset is None:
-    #         with wait_for_the_master():
-    #             assert cache_img is None, (
-    #                 "cache_img must be None if you didn't create self.dataset before launch"
-    #             )
-    #             self.dataset = self.get_dataset(cache=False, cache_type=cache_img)
-
-    #     self.dataset = MosaicDetection(
-    #         dataset=self.dataset,
-    #         mosaic=not no_aug,
-    #         img_size=self.input_size,
-    #         preproc=TrainTransform(
-    #             max_labels=self.mosaic_max_labels,
-    #             flip_prob=self.flip_prob,
-    #             hsv_prob=self.hsv_prob,
-    #         ),
-    #         degrees=self.degrees,
-    #         translate=self.translate,
-    #         mosaic_scale=self.mosaic_scale,
-    #         mixup_scale=self.mixup_scale,
-    #         shear=self.shear,
-    #         enable_mixup=self.enable_mixup,
-    #         mosaic_prob=self.mosaic_prob,
-    #         mixup_prob=self.mixup_prob,
-    #     )
-
-    #     if is_distributed:
-    #         batch_size = batch_size // dist.get_world_size()
-
-    #     sampler = InfiniteSampler(len(self.dataset), seed=self.seed if self.seed else 0)
-    #     batch_sampler = YoloBatchSampler(
-    #         sampler=sampler,
-    #         batch_size=batch_size,
-    #         drop_last=False,
-    #         mosaic=not no_aug,
-    #     )
-
-    #     dataloader_kwargs = {"num_workers": self.data_num_workers, "pin_memory": True}
-    #     dataloader_kwargs["batch_sampler"] = batch_sampler
-    #     dataloader_kwargs["worker_init_fn"] = worker_init_reset_seed
-    #     return DataLoader(self.dataset, **dataloader_kwargs)
     def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
         # Load dataset if not already created
         if self.dataset is None:
@@ -272,9 +255,11 @@ class Exp(YOLOXBaseExp):
                 )
                 self.dataset = self.get_dataset(cache=False, cache_type=cache_img)
 
+        base_dataset = getattr(self.dataset, "_dataset", self.dataset)
+
         # Wrap with MosaicDetection for augmentations
         self.dataset = MosaicDetection(
-            dataset=self.dataset,
+            dataset=base_dataset,
             mosaic=not no_aug,
             img_size=self.input_size,
             preproc=TrainTransform(
@@ -296,7 +281,21 @@ class Exp(YOLOXBaseExp):
         if is_distributed:
             batch_size = batch_size // dist.get_world_size()
 
-        sampler = InfiniteSampler(len(self.dataset), seed=self.seed if self.seed else 0)
+        if self.enable_rare_class_oversampling:
+            weights, image_frequency, repeat_factors = base_dataset.build_image_sampling_weights(
+                self.oversample_target_classes,
+                max_repeat_factor=self.max_oversample_factor,
+            )
+            print(f"Using rare-class oversampling: {repeat_factors}")
+            print(
+                "Rare-class image frequencies: "
+                + str({name: image_frequency.get(name, 0) for name in self.oversample_target_classes})
+            )
+            sampler = WeightedInfiniteSampler(
+                weights, seed=self.seed if self.seed else 0
+            )
+        else:
+            sampler = InfiniteSampler(len(self.dataset), seed=self.seed if self.seed else 0)
         batch_sampler = YoloBatchSampler(
             sampler=sampler,
             batch_size=batch_size,

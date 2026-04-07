@@ -159,8 +159,8 @@ class Exp(YOLOXBaseExp):
         self.val_ann = "val.json"
         self.test_ann = "val.json"
         self.train_name = "train/train_frames"
-        self.val_name = "train_frames"
-        self.test_name = "train_frames"
+        self.val_name = "train/train_frames"
+        self.test_name ="train/train_frames"
 
         # Input sizes
         self.input_size = (960, 960)
