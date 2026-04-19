@@ -6,6 +6,20 @@ from pathlib import Path
 
 import cv2
 
+SUPERCLASS_NAME_MAP = {
+    "Motorbike": "Motorbike",
+    "Pedestrian": "Pedestrian",
+    "Cyclist": "Cyclist",
+    "Car": "Vehicle",
+    "Bus": "Vehicle",
+    "Medium_vehicle": "Vehicle",
+    "Large_vehicle": "Vehicle",
+    "Emergency_vehicle": "Vehicle",
+    "Small_motorised_vehicle": "Vehicle",
+    "Small_motorized_vehicle": "Vehicle",
+}
+SUPERCLASS_ORDER = ("Motorbike", "Pedestrian", "Vehicle", "Cyclist")
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -13,17 +27,28 @@ def parse_args():
     )
     parser.add_argument(
         "--dataset-root",
-        default="datasets/emt",
-        help="EMT dataset root containing frames/, test_frames/, and emt_annotations/.",
+        default="datasets/EMT",
+        help="EMT dataset root containing frames/ and annotations/.",
+    )
+    parser.add_argument(
+        "--labels-dir",
+        default=None,
+        help=(
+            "Optional label directory (absolute or relative to dataset root). "
+            "If omitted, the script auto-detects common EMT KITTI label paths."
+        ),
     )
     parser.add_argument(
         "--labels-subdir",
         default="labels_full",
-        help="Annotation subdirectory inside emt_annotations to read from.",
+        help=(
+            "Legacy subdirectory under --annotation-dir to read labels from "
+            "when --labels-dir is not provided."
+        ),
     )
     parser.add_argument(
         "--annotation-dir",
-        default="emt_annotations",
+        default="annotations/detections_new",
         help="Directory under dataset root where output JSON files are written.",
     )
     parser.add_argument(
@@ -33,23 +58,51 @@ def parse_args():
     )
     parser.add_argument(
         "--val-images-dir",
-        default="test_frames",
+        default="frames",
         help="Directory under dataset root containing validation frame folders.",
     )
     parser.add_argument(
         "--train-output",
-        default="train.json",
+        default="train_superclass.json",
         help="COCO JSON filename for the training split.",
     )
     parser.add_argument(
         "--val-output",
-        default="test.json",
+        default="test_superclass.json",
         help="COCO JSON filename for the validation split.",
+    )
+    parser.add_argument(
+        "--label-level",
+        choices=("class", "superclass"),
+        default="superclass",
+        help=(
+            "Use original EMT class labels or map to 4 superclasses: "
+            "Motorbike, pedestrian, vehicle, cyclist."
+        ),
     )
     return parser.parse_args()
 
 
-def build_categories(label_dir, split_videos):
+def normalize_class_name(name):
+    return name.strip().replace("-", "_").replace(" ", "_").lower()
+
+
+def map_class_name(class_name, label_level):
+    if label_level == "class":
+        return class_name
+
+    mapped = SUPERCLASS_NAME_MAP.get(class_name)
+    if mapped is not None:
+        return mapped
+
+    normalized = normalize_class_name(class_name)
+    for source, target in SUPERCLASS_NAME_MAP.items():
+        if normalize_class_name(source) == normalized:
+            return target
+    return None
+
+
+def build_categories(label_dir, split_videos, label_level):
     class_names = set()
     for video_name in split_videos:
         label_path = label_dir / f"{video_name}.txt"
@@ -59,11 +112,19 @@ def build_categories(label_dir, split_videos):
             for line in handle:
                 parts = line.strip().split()
                 if len(parts) >= 3:
-                    class_names.add(parts[2])
+                    mapped_name = map_class_name(parts[2], label_level)
+                    if mapped_name is not None:
+                        class_names.add(mapped_name)
 
     categories = []
     class_to_id = {}
-    for category_id, class_name in enumerate(sorted(class_names), start=1):
+    if label_level == "superclass":
+        ordered_names = [name for name in SUPERCLASS_ORDER if name in class_names]
+        ordered_names.extend(sorted(class_names - set(ordered_names)))
+    else:
+        ordered_names = sorted(class_names)
+
+    for category_id, class_name in enumerate(ordered_names, start=1):
         class_to_id[class_name] = category_id
         categories.append({"id": category_id, "name": class_name})
     return categories, class_to_id
@@ -120,6 +181,67 @@ def parse_label_file(label_path):
     return frame_to_objects
 
 
+def load_split_videos_from_coco(json_path):
+    if not json_path.exists():
+        return set()
+
+    payload = json.loads(json_path.read_text())
+    video_names = set()
+    for image in payload.get("images", []):
+        file_name = image.get("file_name", "")
+        if "/" in file_name:
+            video_names.add(file_name.split("/", 1)[0])
+    return video_names
+
+
+def list_video_dirs(image_root):
+    if not image_root.exists():
+        return set()
+    return {path.name for path in image_root.iterdir() if path.is_dir()}
+
+
+def resolve_split_video_dirs(train_root, val_root, annotation_root, train_output, val_output):
+    train_videos = list_video_dirs(train_root)
+    val_videos = list_video_dirs(val_root)
+
+    if train_videos and val_videos and train_root.resolve() != val_root.resolve():
+        train_videos -= val_videos
+        return train_videos, val_videos, train_root, val_root
+
+    shared_root = train_root if train_videos else val_root
+    if not shared_root.exists():
+        raise ValueError(
+            f"no image folders found: train={train_root} val={val_root}"
+        )
+
+    # Prefer canonical split hints when available.
+    mapped_train_videos = load_split_videos_from_coco(annotation_root / "train.json")
+    mapped_val_videos = load_split_videos_from_coco(annotation_root / "test.json")
+    if not (mapped_train_videos or mapped_val_videos):
+        mapped_train_videos = load_split_videos_from_coco(annotation_root / train_output)
+        mapped_val_videos = load_split_videos_from_coco(annotation_root / val_output)
+    if mapped_train_videos or mapped_val_videos:
+        return mapped_train_videos, mapped_val_videos, shared_root, shared_root
+
+    return list_video_dirs(shared_root), set(), shared_root, shared_root
+
+
+def resolve_label_dir(args, dataset_root):
+    if args.labels_dir is not None:
+        labels_dir = Path(args.labels_dir)
+        if not labels_dir.is_absolute():
+            labels_dir = dataset_root / labels_dir
+        return labels_dir
+
+    candidates = [
+        dataset_root / args.annotation_dir / args.labels_subdir,
+        dataset_root / "annotations" / "tracking" / "kitti",
+        dataset_root / "annotations" / "tracking" / "gmot",
+        dataset_root / "emt_annotations" / "labels_full",
+    ]
+    return next((path for path in candidates if path.exists()), candidates[0])
+
+
 def clip_bbox(bbox, width, height):
     x1, y1, x2, y2 = bbox
     x1 = max(0.0, min(float(width), x1))
@@ -134,7 +256,9 @@ def clip_bbox(bbox, width, height):
     return x1, y1, x2, y2
 
 
-def build_split_payload(split_name, video_names, image_root, label_dir, class_to_id):
+def build_split_payload(
+    split_name, video_names, image_root, label_dir, class_to_id, label_level
+):
     payload = {"images": [], "annotations": [], "categories": []}
     image_id = 1
     ann_id = 1
@@ -163,7 +287,10 @@ def build_split_payload(split_name, video_names, image_root, label_dir, class_to
             )
 
             for obj in frame_to_objects.get(frame_num, []):
-                if obj["class_name"] not in class_to_id:
+                mapped_class_name = map_class_name(obj["class_name"], label_level)
+                if mapped_class_name is None:
+                    continue
+                if mapped_class_name not in class_to_id:
                     continue
 
                 x1, y1, x2, y2 = clip_bbox(obj["bbox"], width, height)
@@ -181,7 +308,7 @@ def build_split_payload(split_name, video_names, image_root, label_dir, class_to
                     {
                         "id": ann_id,
                         "image_id": image_id,
-                        "category_id": class_to_id[obj["class_name"]],
+                        "category_id": class_to_id[mapped_class_name],
                         "bbox": [x1, y1, bbox_w, bbox_h],
                         "area": bbox_w * bbox_h,
                         "iscrowd": 0,
@@ -199,21 +326,26 @@ def main():
     args = parse_args()
     dataset_root = Path(args.dataset_root)
     annotation_root = dataset_root / args.annotation_dir
-    label_dir = annotation_root / args.labels_subdir
+    label_dir = resolve_label_dir(args, dataset_root)
+    if not label_dir.exists():
+        raise ValueError(f"label directory does not exist: {label_dir}")
+
     train_root = dataset_root / args.train_images_dir
     val_root = dataset_root / args.val_images_dir
 
-    train_videos = {path.name for path in train_root.iterdir() if path.is_dir()}
-    val_videos = {path.name for path in val_root.iterdir() if path.is_dir()}
-    train_videos -= val_videos
+    train_videos, val_videos, train_root, val_root = resolve_split_video_dirs(
+        train_root, val_root, annotation_root, args.train_output, args.val_output
+    )
 
-    categories, class_to_id = build_categories(label_dir, train_videos | val_videos)
+    categories, class_to_id = build_categories(
+        label_dir, train_videos | val_videos, args.label_level
+    )
 
     train_payload = build_split_payload(
-        "train", train_videos, train_root, label_dir, class_to_id
+        "train", train_videos, train_root, label_dir, class_to_id, args.label_level
     )
     val_payload = build_split_payload(
-        "val", val_videos, val_root, label_dir, class_to_id
+        "val", val_videos, val_root, label_dir, class_to_id, args.label_level
     )
     train_payload["categories"] = categories
     val_payload["categories"] = categories
@@ -232,6 +364,8 @@ def main():
         f"val: {len(val_payload['images'])} images, "
         f"{len(val_payload['annotations'])} annotations"
     )
+    print(f"label level: {args.label_level}")
+    print(f"labels read from: {label_dir}")
     print(f"categories: {len(categories)} -> {[cat['name'] for cat in categories]}")
     print(f"wrote {train_path}")
     print(f"wrote {val_path}")
