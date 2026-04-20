@@ -243,15 +243,15 @@ class Exp(YOLOXBaseExp):
         self.output_dir = "./checkpoints"
         self.exp_name = "yolox_emt"
 
-        self.num_classes = 4
+        self.num_classes = 3
         self.depth = 1
         self.width = 1
 
         self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
         self.annotation_dir = "annotations/detections_new"
-        self.train_ann = "train_superclass.json"
-        self.val_ann = "test_superclass.json"
-        self.test_ann = "test_superclass.json"
+        self.train_ann = "train_3class.json"
+        self.val_ann = "test_3class.json"
+        self.test_ann = "test_3class.json"
         self.train_name = "frames"
         self.val_name = "frames"
         self.test_name = "frames"
@@ -286,8 +286,8 @@ class Exp(YOLOXBaseExp):
         self.disable_oversampling_for_superclass = False
         self.auto_select_oversample_classes = False
         self.oversample_minority_ratio_threshold = 0.2
-        self.oversample_target_classes = ("Cyclist", "Pedestrian", "Motorbike")
-        self.max_oversample_factor = 8.0
+        self.oversample_target_classes = ("VulnerableRoadUser", "Two-Wheeler")
+        self.max_oversample_factor = 4.0
 
         # Annotation filtering
         self.min_box_area = 75
@@ -295,19 +295,14 @@ class Exp(YOLOXBaseExp):
         self.mosaic_max_labels = 300
 
         # Class-weighted loss (order matches sorted category IDs)
-        # index 0: Motorbike, index 1: Pedestrian, index 2: Vehicle, index 3: Cyclist
-        self.cls_loss_weights = [3.0, 4.0, 1.0, 8.0]
+        # index 0: VulnerableRoadUser (id 1)
+        # index 1: Two-Wheeler        (id 2)
+        # index 2: Vehicle            (id 3)
+        self.cls_loss_weights = [2.0, 3.0, 1.0]
 
         # Logging
         self.print_class_stats_before_training = True
         self._printed_class_stats = False
-
-        self._sync_num_classes_from_annotations()
-
-    @staticmethod
-    def _is_superclass_dataset(class_names):
-        normalized = {name.strip().lower() for name in class_names}
-        return len(normalized) == 4
 
     @staticmethod
     def _resolve_dataset_class_names(dataset_classes, requested_classes):
@@ -451,11 +446,6 @@ class Exp(YOLOXBaseExp):
         use_oversampling = self.enable_rare_class_oversampling and not (
             self.disable_oversampling_for_superclass and is_superclass_dataset
         )
-
-        if not use_oversampling and self.enable_rare_class_oversampling and is_superclass_dataset:
-            logger.info(
-                "Detected superclass EMT labels; disabling rare-class oversampling for this run."
-            )
 
         if use_oversampling:
             target_classes = self._resolve_dataset_class_names(
