@@ -237,72 +237,72 @@ class EMTDataset(CacheDataset):
 
 
 class Exp(YOLOXBaseExp):
-def __init__(self):
-    super().__init__()
+    def __init__(self):
+        super().__init__()
 
-    self.output_dir = "./checkpoints"
-    self.exp_name = "yolox_emt"
+        self.output_dir = "./checkpoints"
+        self.exp_name = "yolox_emt"
 
-    self.num_classes = 4
-    self.depth = 1
-    self.width = 1
+        self.num_classes = 4
+        self.depth = 1
+        self.width = 1
 
-    self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
-    self.annotation_dir = "annotations/detections_new"
-    self.train_ann = "train_superclass.json"
-    self.val_ann = "test_superclass.json"
-    self.test_ann = "test_superclass.json"
-    self.train_name = "frames"
-    self.val_name = "frames"
-    self.test_name = "frames"
+        self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
+        self.annotation_dir = "annotations/detections_new"
+        self.train_ann = "train_superclass.json"
+        self.val_ann = "test_superclass.json"
+        self.test_ann = "test_superclass.json"
+        self.train_name = "frames"
+        self.val_name = "frames"
+        self.test_name = "frames"
 
-    # Input sizes
-    self.input_size = (1280, 1280)
-    self.test_size = (1280, 1280)
-    self.multiscale_range = 5
+        # Input sizes
+        self.input_size = (1280, 1280)
+        self.test_size = (1280, 1280)
+        self.multiscale_range = 5
 
-    # Training schedule
-    self.max_epoch = 120
-    self.print_interval = 50
-    self.eval_interval = 2
-    self.test_conf = 0.01
-    self.nmsthre = 0.5
-    self.no_aug_epochs = 20
-    self.basic_lr_per_img = 0.001 / 64.0
-    self.min_lr_ratio = 0.01
-    self.warmup_epochs = 5
+        # Training schedule
+        self.max_epoch = 120
+        self.print_interval = 50
+        self.eval_interval = 2
+        self.test_conf = 0.01
+        self.nmsthre = 0.5
+        self.no_aug_epochs = 20
+        self.basic_lr_per_img = 0.001 / 64.0
+        self.min_lr_ratio = 0.005
+        self.warmup_epochs = 5
 
-    # Augmentation
-    self.enable_mixup = True
-    self.mixup_prob = 0.5
-    self.mosaic_prob = 0.7
-    self.mosaic_scale = (0.5, 2.0)
-    self.degrees = 5.0
-    self.translate = 0.05
-    self.shear = 0.5
+        # Augmentation
+        self.enable_mixup = True
+        self.mixup_prob = 0.5
+        self.mosaic_prob = 0.8
+        self.mosaic_scale = (0.5, 2.0)
+        self.degrees = 5.0
+        self.translate = 0.05
+        self.shear = 0.5
 
-    # Rare-class oversampling
-    self.enable_rare_class_oversampling = True
-    self.disable_oversampling_for_superclass = False
-    self.auto_select_oversample_classes = False
-    self.oversample_minority_ratio_threshold = 0.2
-    self.oversample_target_classes = ("Cyclist", "Pedestrian", "Motorbike")
-    self.max_oversample_factor = 10.0
+        # Rare-class oversampling
+        self.enable_rare_class_oversampling = True
+        self.disable_oversampling_for_superclass = False
+        self.auto_select_oversample_classes = False
+        self.oversample_minority_ratio_threshold = 0.2
+        self.oversample_target_classes = ("Cyclist", "Pedestrian", "Motorbike")
+        self.max_oversample_factor = 8.0
 
-    # Annotation filtering
-    self.min_box_area = 75
-    self.train_max_labels = 100
-    self.mosaic_max_labels = 300
+        # Annotation filtering
+        self.min_box_area = 75
+        self.train_max_labels = 100
+        self.mosaic_max_labels = 300
 
-    # Class-weighted loss (order matches sorted category IDs)
-    # index 0: Motorbike, index 1: Pedestrian, index 2: Vehicle, index 3: Cyclist
-    self.cls_loss_weights = [4.0, 4.0, 1.0, 10.0]
+        # Class-weighted loss (order matches sorted category IDs)
+        # index 0: Motorbike, index 1: Pedestrian, index 2: Vehicle, index 3: Cyclist
+        self.cls_loss_weights = [3.0, 4.0, 1.0, 8.0]
 
-    # Logging
-    self.print_class_stats_before_training = True
-    self._printed_class_stats = False
+        # Logging
+        self.print_class_stats_before_training = True
+        self._printed_class_stats = False
 
-    self._sync_num_classes_from_annotations()
+        self._sync_num_classes_from_annotations()
 
     @staticmethod
     def _is_superclass_dataset(class_names):
