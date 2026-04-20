@@ -24,6 +24,7 @@ class YOLOXHead(nn.Module):
         in_channels=[256, 512, 1024],
         act="silu",
         depthwise=False,
+        cls_loss_weights=None, 
     ):
         """
         Args:
@@ -31,6 +32,13 @@ class YOLOXHead(nn.Module):
             depthwise (bool): whether apply depthwise conv in conv branch. Defalut value: False.
         """
         super().__init__()
+        if cls_loss_weights is not None:
+            self.register_buffer(
+                "cls_loss_weights",
+                torch.tensor(cls_loss_weights, dtype=torch.float32)
+            )
+        else:
+            self.cls_loss_weights = None
 
         self.num_classes = num_classes
         self.decode_in_inference = True  # for deploy, set to False
@@ -388,11 +396,19 @@ class YOLOXHead(nn.Module):
         loss_obj = (
             self.bcewithlog_loss(obj_preds.view(-1, 1), obj_targets)
         ).sum() / num_fg
-        loss_cls = (
-            self.bcewithlog_loss(
-                cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
-            )
-        ).sum() / num_fg
+        # loss_cls = (
+        #     self.bcewithlog_loss(
+        #         cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+        #     )
+        # ).sum() / num_fg
+        cls_loss_raw = self.bcewithlog_loss(
+            cls_preds.view(-1, self.num_classes)[fg_masks], cls_targets
+        )  # shape: [num_fg, num_classes]
+
+        if self.cls_loss_weights is not None:
+            loss_cls = (cls_loss_raw * self.cls_loss_weights).sum() / num_fg
+        else:
+            loss_cls = cls_loss_raw.sum() / num_fg
         if self.use_l1:
             loss_l1 = (
                 self.l1_loss(origin_preds.view(-1, 4)[fg_masks], l1_targets)

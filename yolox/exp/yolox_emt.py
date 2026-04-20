@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 from loguru import logger
 from pycocotools.coco import COCO
+import torch.nn as nn
 
 from yolox.data import (
     DataLoader,
@@ -85,12 +86,17 @@ class EMTDataset(CacheDataset):
         image_class_sets = []
         for img_id in self.ids:
             anns = self.coco.imgToAnns.get(img_id, [])
-            image_class_sets.append(
-                {self.cat_id_to_name[ann["category_id"]] for ann in anns}
-            )
+            # Only count classes that survive the area filter
+            valid_classes = set()
+            for ann in anns:
+                if ann.get("area", 0) >= self.min_box_area:
+                    class_name = self.cat_id_to_name.get(ann["category_id"])
+                    if class_name:
+                        valid_classes.add(class_name)
+            image_class_sets.append(valid_classes)
         return image_class_sets
 
-    def build_image_sampling_weights(self, target_class_names, max_repeat_factor=8.0):
+    def build_image_sampling_weights(self, target_class_names, max_repeat_factor=10.0):
         if not target_class_names:
             return np.ones(self.num_imgs, dtype=np.float32), {}, {}
 
@@ -231,64 +237,72 @@ class EMTDataset(CacheDataset):
 
 
 class Exp(YOLOXBaseExp):
-    def __init__(self):
-        super().__init__()
+def __init__(self):
+    super().__init__()
 
-        self.output_dir = "./checkpoints"
-        self.exp_name = "yolox_emt"
+    self.output_dir = "./checkpoints"
+    self.exp_name = "yolox_emt"
 
-        self.num_classes = 4
-        self.depth = 1 #.33
-        self.width = 1 #.25
+    self.num_classes = 4
+    self.depth = 1
+    self.width = 1
 
-        self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
-        self.annotation_dir = "annotations/detections_new"
-        self.train_ann = "train_superclass.json"
-        self.val_ann = "test_superclass.json"
-        self.test_ann = "test_superclass.json"
-        self.train_name = "frames"
-        self.val_name = "frames"
-        self.test_name = "frames"
+    self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
+    self.annotation_dir = "annotations/detections_new"
+    self.train_ann = "train_superclass.json"
+    self.val_ann = "test_superclass.json"
+    self.test_ann = "test_superclass.json"
+    self.train_name = "frames"
+    self.val_name = "frames"
+    self.test_name = "frames"
 
-        # Input sizes
-        self.input_size = (1280, 1280)
-        self.test_size = (1280, 1280)
-        self.multiscale_range = 5
+    # Input sizes
+    self.input_size = (1280, 1280)
+    self.test_size = (1280, 1280)
+    self.multiscale_range = 5
 
-        self.max_epoch = 120
-        self.print_interval = 50
-        self.eval_interval = 2
-        self.test_conf = 0.01
-        self.nmsthre = 0.5
-        self.no_aug_epochs = 15
-        self.basic_lr_per_img = (0.001 / 64.0) #0.001 / 2.0
-        self.min_lr_ratio = 0.05
-        self.warmup_epochs = 5
+    # Training schedule
+    self.max_epoch = 120
+    self.print_interval = 50
+    self.eval_interval = 2
+    self.test_conf = 0.01
+    self.nmsthre = 0.5
+    self.no_aug_epochs = 20
+    self.basic_lr_per_img = 0.001 / 64.0
+    self.min_lr_ratio = 0.01
+    self.warmup_epochs = 5
 
-        self.enable_mixup = True
-        self.mixup_prob = 1.0
-        self.mosaic_prob = 1.0
-        self.mosaic_scale = (0.5, 2.0)
-        self.degrees = 5.0
-        self.translate = 0.05
-        self.shear = 0.5
-        self.enable_rare_class_oversampling = True
-        self.disable_oversampling_for_superclass = False
-        self.auto_select_oversample_classes = False
-        self.oversample_minority_ratio_threshold = 0.2
-        self.oversample_target_classes = (
-            "Cyclist",
-            "Pedestrian",
-            "Motorbike",
-        )
-        self.max_oversample_factor = 8.0
-        self.min_box_area = 75      
+    # Augmentation
+    self.enable_mixup = True
+    self.mixup_prob = 0.5
+    self.mosaic_prob = 0.7
+    self.mosaic_scale = (0.5, 2.0)
+    self.degrees = 5.0
+    self.translate = 0.05
+    self.shear = 0.5
 
-        self.train_max_labels = 100
-        self.mosaic_max_labels = 300
-        self.print_class_stats_before_training = True
-        self._printed_class_stats = False
-        self._sync_num_classes_from_annotations()
+    # Rare-class oversampling
+    self.enable_rare_class_oversampling = True
+    self.disable_oversampling_for_superclass = False
+    self.auto_select_oversample_classes = False
+    self.oversample_minority_ratio_threshold = 0.2
+    self.oversample_target_classes = ("Cyclist", "Pedestrian", "Motorbike")
+    self.max_oversample_factor = 10.0
+
+    # Annotation filtering
+    self.min_box_area = 75
+    self.train_max_labels = 100
+    self.mosaic_max_labels = 300
+
+    # Class-weighted loss (order matches sorted category IDs)
+    # index 0: Motorbike, index 1: Pedestrian, index 2: Vehicle, index 3: Cyclist
+    self.cls_loss_weights = [4.0, 4.0, 1.0, 10.0]
+
+    # Logging
+    self.print_class_stats_before_training = True
+    self._printed_class_stats = False
+
+    self._sync_num_classes_from_annotations()
 
     @staticmethod
     def _is_superclass_dataset(class_names):
@@ -344,7 +358,36 @@ class Exp(YOLOXBaseExp):
             annotation_dir=self.annotation_dir,
             min_box_area=self.min_box_area, 
         )
+    
+    def get_model(self):
+        from yolox.models import YOLOX, YOLOPAFPN, YOLOXHead
 
+        def init_yolo(M):
+            for m in M.modules():
+                if isinstance(m, nn.BatchNorm2d):
+                    m.eps = 1e-3
+                    m.momentum = 0.03
+
+        if getattr(self, "model", None) is None:
+            in_channels = [256, 512, 1024]
+            backbone = YOLOPAFPN(
+                self.depth, self.width,
+                in_channels=in_channels,
+                act=self.act
+            )
+            head = YOLOXHead(
+                self.num_classes,
+                self.width,
+                in_channels=in_channels,
+                act=self.act,
+                cls_loss_weights=self.cls_loss_weights,  
+            )
+            self.model = YOLOX(backbone, head)
+
+        self.model.apply(init_yolo)
+        self.model.head.initialize_biases(1e-2)
+        self.model.train()
+        return self.model
     def get_data_loader(self, batch_size, is_distributed, no_aug=False, cache_img=None):
         # Load dataset if not already created
         if self.dataset is None:
@@ -356,25 +399,28 @@ class Exp(YOLOXBaseExp):
 
         base_dataset = getattr(self.dataset, "_dataset", self.dataset)
 
-        # if (
-        #     self.print_class_stats_before_training
-        #     and not self._printed_class_stats
-        #     and self._is_main_process()
-        #     and hasattr(base_dataset, "get_class_statistics")
-        # ):
-        annotation_count, image_count, filtered_count = base_dataset.get_class_statistics()
-        logger.info("EMT class distribution before training:")
-        for class_name in getattr(base_dataset, "_classes", tuple(annotation_count.keys())):
-            total = annotation_count.get(class_name, 0)
-            filtered = filtered_count.get(class_name, 0)
-            kept = total - filtered
-            logger.info(
-                f"  {class_name}: total={total}, "
-                f"filtered={filtered} ({100*filtered/max(total,1):.1f}%), "
-                f"kept={kept}, "
-                f"images={image_count.get(class_name, 0)}"
-            )
-            # self._printed_class_stats = True
+        if (
+            self.print_class_stats_before_training
+            and not self._printed_class_stats
+            and self._is_main_process()
+            and hasattr(base_dataset, "get_class_statistics")
+        ):
+            annotation_count, image_count, filtered_count = base_dataset.get_class_statistics()
+            logger.info("EMT class distribution before training:")
+            for class_name in getattr(base_dataset, "_classes", tuple(annotation_count.keys())):
+                total = annotation_count.get(class_name, 0)
+                filtered = filtered_count.get(class_name, 0)
+                kept = total - filtered
+                logger.info(
+                    f"  {class_name}: total={total}, "
+                    f"filtered={filtered} ({100*filtered/max(total,1):.1f}%), "
+                    f"kept={kept}, "
+                    f"images={image_count.get(class_name, 0)}"
+                )
+            # Sanity check log — verify class weight alignment
+            logger.info(f"Class order:    {base_dataset._classes}")
+            logger.info(f"Class weights:  {self.cls_loss_weights}")
+            self._printed_class_stats = True
 
         # Wrap with MosaicDetection for augmentations
         self.dataset = MosaicDetection(
