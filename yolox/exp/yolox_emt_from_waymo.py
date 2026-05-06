@@ -235,18 +235,18 @@ class EMTDataset(CacheDataset):
         img = self.read_img(index)
         return img, copy.deepcopy(label), origin_image_size, np.array([id_])
 
-
 class Exp(YOLOXBaseExp):
     def __init__(self):
         super().__init__()
 
         self.output_dir = "./checkpoints"
-        self.exp_name = "yolox_emt"
+        self.exp_name = "yolox_emt_from_waymo"   # different name to avoid overwriting
 
         self.num_classes = 3
         self.depth = 1
         self.width = 1
 
+        # Same data paths as before
         self.data_dir = os.path.join(get_yolox_datadir(), "EMT")
         self.annotation_dir = "annotations/detections_new"
         self.train_ann = "train_3class.json"
@@ -256,52 +256,51 @@ class Exp(YOLOXBaseExp):
         self.val_name = "frames"
         self.test_name = "frames"
 
-        # Input sizes
+        # Input
         self.input_size = (1280, 1280)
         self.test_size = (1280, 1280)
         self.multiscale_range = 5
 
-        # Training schedule
-        self.max_epoch = 120
+        # SHORTER schedule (model already mostly trained)
+        self.max_epoch = 30                    # was 120
         self.print_interval = 50
-        self.eval_interval = 2
+        self.eval_interval = 1                 # evaluate every epoch
         self.test_conf = 0.01
         self.nmsthre = 0.5
-        self.no_aug_epochs = 20
-        self.basic_lr_per_img = 0.001 / 64.0
-        self.min_lr_ratio = 0.005
-        self.warmup_epochs = 5
+        self.no_aug_epochs = 5                 # was 20
+        self.basic_lr_per_img = 0.0001 / 64.0  # 10× LOWER
+        self.min_lr_ratio = 0.01
+        self.warmup_epochs = 1                 # was 5
 
-        # Augmentation
+        # GENTLER augmentation
         self.enable_mixup = True
-        self.mixup_prob = 0.5
-        self.mosaic_prob = 0.8
-        self.mosaic_scale = (0.5, 2.0)
-        self.degrees = 5.0
+        self.mixup_prob = 0.3                  # was 0.5
+        self.mosaic_prob = 0.5                 # was 0.8
+        self.mosaic_scale = (0.7, 1.5)         # narrower
+        self.degrees = 3.0                     # was 5.0
         self.translate = 0.05
         self.shear = 0.5
 
-        # Rare-class oversampling
+        # MILDER imbalance handling
         self.enable_rare_class_oversampling = True
+        self.disable_oversampling_for_superclass = False
         self.auto_select_oversample_classes = False
         self.oversample_minority_ratio_threshold = 0.2
         self.oversample_target_classes = ("VulnerableRoadUser", "Two-Wheeler")
-        self.max_oversample_factor = 4.0
+        self.max_oversample_factor = 3.0       # was 4.0
 
         # Annotation filtering
         self.min_box_area = 75
         self.train_max_labels = 100
         self.mosaic_max_labels = 300
 
-        # Class-weighted loss (order matches sorted category IDs)
-        # index 0: VulnerableRoadUser (id 1)
-        # index 1: Two-Wheeler        (id 2)
-        # index 2: Vehicle            (id 3)
-        self.cls_loss_weights = [2.0, 3.0, 1.0]
+        # GENTLER class weights
+        self.cls_loss_weights = [1.5, 2.0, 1.0]   # was [2.0, 3.0, 1.0]
 
-        # Logging
         self.print_class_stats_before_training = True
         self._printed_class_stats = False
+
+        self._sync_num_classes_from_annotations()
 
     @staticmethod
     def _resolve_dataset_class_names(dataset_classes, requested_classes):

@@ -197,6 +197,137 @@ Typical checkpoint files inside that folder are:
 - `best_ckpt.pth`
 - `epoch_<n>_ckpt.pth` when history saving is enabled
 
+# Detector Checkpoints
+
+Checkpoint files are not committed to the repository (each is ~430MB).
+This document describes the available checkpoints and how to obtain them.
+
+## Available Checkpoints
+
+| Checkpoint | Pretraining | Fine-tune | EMT mAP | Use Case |
+|---|---|---|---|---|
+| `final/yolox_emt_coco.pth` | COCO | EMT | 0.287 | Main fine-tuned detector |
+| `final/yolox_emt_waymo.pth` | COCO + ROAD-Waymo | EMT | 0.287 | Cross-dataset pretraining ablation |
+| `final/yolox_road_waymo.pth` | COCO | ROAD-Waymo | 0.162* | Off-the-shelf baseline / Waymo detector |
+
+*0.162 mAP on EMT (cross-domain). On Waymo test set: 0.307 mAP.
+
+## Per-Class Performance on EMT Test Set
+
+All values are AP@0.5:0.95, fp32 evaluation, 1280×1280 input.
+
+| Detector | VRU | Two-Wheeler | Vehicle | mAP |
+|---|---|---|---|---|
+| `yolox_road_waymo.pth` | 17.13 | 2.87 | 28.63 | 0.162 |
+| `yolox_emt_waymo.pth` | 21.48 | 21.57 | 43.10 | 0.287 |
+| `yolox_emt_coco.pth` | 21.35 | 21.97 | 42.72 | 0.287 |
+
+## How to Obtain
+
+### Option A: Download from GitHub Release
+
+```bash
+mkdir -p checkpoints/final
+
+# Update USERNAME/REPO and TAG to match your release
+BASE="https://github.com/USERNAME/REPO/releases/download/v1.0"
+
+wget $BASE/yolox_emt_coco.pth   -O checkpoints/final/yolox_emt_coco.pth
+wget $BASE/yolox_emt_waymo.pth  -O checkpoints/final/yolox_emt_waymo.pth
+wget $BASE/yolox_road_waymo.pth -O checkpoints/final/yolox_road_waymo.pth
+```
+
+### Option B: Re-train locally
+
+Each checkpoint can be reproduced from scratch using the configs in
+`exps/example/custom/`. See the main `README.md` and `docs/TRAINING.md`
+for full commands.
+
+Approximate training time on a single RTX 5090:
+- ROAD-Waymo: ~16 hours (24 epochs)
+- EMT (from COCO): ~13 hours (60 epochs, peak at epoch 6)
+- EMT (from ROAD-Waymo): ~6 hours (30 epochs, peak at epoch 6)
+
+### Option C: Contact authors
+
+Email [your-email@example.com] for direct access.
+
+## Expected Directory Structure
+
+After downloading, your `checkpoints/` directory should look like:
+
+```
+checkpoints/
+├── README.md                          (this file)
+└── final/
+    ├── yolox_emt_coco.pth            (~430MB)
+    ├── yolox_emt_waymo.pth           (~430MB)
+    └── yolox_road_waymo.pth          (~430MB)
+```
+
+## Verification
+
+After downloading, verify each checkpoint by running evaluation:
+
+```bash
+# Verify yolox_emt_coco.pth (expect mAP 0.287)
+python tools/eval.py \
+    -f exps/example/custom/yolo_emt.py \
+    -c checkpoints/final/yolox_emt_coco.pth \
+    -b 8 -d 1 --conf 0.01 --nms 0.5 --tsize 1280
+
+# Verify yolox_emt_waymo.pth (expect mAP 0.287)
+python tools/eval.py \
+    -f exps/example/custom/yolo_emt_from_waymo.py \
+    -c checkpoints/final/yolox_emt_waymo.pth \
+    -b 8 -d 1 --conf 0.01 --nms 0.5 --tsize 1280
+
+# Verify yolox_road_waymo.pth on Waymo test (expect mAP 0.307)
+python tools/eval.py \
+    -f exps/example/custom/yolo_road_waymo.py \
+    -c checkpoints/final/yolox_road_waymo.pth \
+    -b 8 -d 1 --conf 0.01 --nms 0.5 --tsize 1280
+
+# Verify cross-domain: Waymo detector on EMT test (expect mAP 0.162)
+python tools/eval.py \
+    -f exps/example/custom/yolo_emt_from_waymo.py \
+    -c checkpoints/final/yolox_road_waymo.pth \
+    -b 8 -d 1 --conf 0.01 --nms 0.5 --tsize 1280
+```
+
+## Class Taxonomy
+
+All checkpoints use a unified 3-class taxonomy:
+
+| ID | Class | Source Categories |
+|---|---|---|
+| 1 | VulnerableRoadUser | Pedestrian, Cyclist |
+| 2 | Two-Wheeler | Motorbike, Small motorised vehicle |
+| 3 | Vehicle | Car, Bus, Medium/Large vehicle, Emergency vehicle |
+
+See `tools/remap_emt_to_3class.py` for the mapping script.
+
+## Training Configuration Summary
+
+| Parameter | EMT (COCO) | EMT (Waymo) | ROAD-Waymo |
+|---|---|---|---|
+| Input size | 1280×1280 | 1280×1280 | 1280×1280 |
+| Batch size | 8 | 8 | 8 |
+| Initial LR | 0.001/64 | 0.0001/64 | 0.001/64 |
+| Max epochs | 120 | 30 | 60 |
+| Peak epoch | 6 | 6 | 4 |
+| Class weights (VRU, TW, Veh) | [2.0, 3.0, 1.0] | [1.5, 2.0, 1.0] | [1.5, 6.0, 1.0] |
+| Oversample factor | 4.0 | 3.0 | 8.0 |
+| Mosaic / Mixup | 0.8 / 0.5 | 0.5 / 0.3 | 0.8 / 0.5 |
+
+## File Sizes
+
+| File | Size |
+|---|---|
+| `yolox_emt_coco.pth` | ~430 MB |
+| `yolox_emt_waymo.pth` | ~430 MB |
+| `yolox_road_waymo.pth` | ~430 MB |
+| **Total** | **~1.3 GB** |
 ### Visualizing Labels
 
 Visualize one KITTI-labeled sample:
@@ -255,6 +386,60 @@ If you want YOLOX-style split folders created under the output dataset root, add
 
 ```shell
 python road_to_coco.py --road-dir datasets/road_waymo --prepare-yolox-layout
+```
+
+#### ROAD Waymo Annotation Tool
+
+[tools/road_waymo_tool.py](./tools/road_waymo_tool.py) is a self-contained script for inspecting and remapping the ROAD Waymo class annotations. It reads directly from `datasets/road_waymo/road_waymo_annotations/`.
+
+**Statistics**
+
+```shell
+python tools/road_waymo_tool.py stats --split train
+python tools/road_waymo_tool.py stats --split val
+```
+
+**Visualize annotated frames**
+
+```shell
+# Random frames from train set (space/n = next, p = prev, q = quit)
+python tools/road_waymo_tool.py visualize --split train
+
+# One specific video sequence, in frame order
+python tools/road_waymo_tool.py visualize --split train --video train_00444
+
+# Auto-play at ~5 fps
+python tools/road_waymo_tool.py visualize --split train --video train_00444 --delay 200
+```
+
+**Merge / remap classes**
+
+Produce the EMT 3-class JSON (matches the category scheme used in `yolox_emt.py`):
+
+```shell
+python tools/road_waymo_tool.py merge --split train --preset emt \
+    --out datasets/road_waymo/road_waymo_annotations/train_3class.json
+
+python tools/road_waymo_tool.py merge --split val --preset emt \
+    --out datasets/road_waymo/road_waymo_annotations/val_3class.json
+```
+
+The `emt` preset maps the 9 original classes to:
+
+| id | Name | Original classes |
+|----|------|-----------------|
+| 1 | VulnerableRoadUser | Pedestrian, Cyclist |
+| 2 | Two-Wheeler | Motorbike, Small_motorised_vehicle |
+| 3 | Vehicle | Bus, Car, Large_vehicle, Medium_vehicle, Emergency_vehicle |
+
+Custom merges are also supported with `--merge "NewName:Class1,Class2"` (repeatable). Add `--drop-unmapped` to silently discard any class not covered by a merge spec:
+
+```shell
+python tools/road_waymo_tool.py merge --split train \
+    --merge "Vehicle:Bus,Car,Large_vehicle,Medium_vehicle,Emergency_vehicle" \
+    --merge "VRU:Pedestrian,Cyclist" \
+    --drop-unmapped \
+    --out datasets/road_waymo/road_waymo_annotations/train_2class.json
 ```
 
 This fork keeps the original YOLOX training and evaluation flow, but uses custom dataset conversion and experiment files for our datasets.
