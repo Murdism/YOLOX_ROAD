@@ -5,5 +5,6 @@
 from .coco import COCODataset
 from .coco_classes import COCO_CLASSES
 from .datasets_wrapper import CacheDataset, ConcatDataset, Dataset, MixConcatDataset
+from .emt_dataset import EMTDataset
 from .mosaicdetection import MosaicDetection
 from .voc import VOCDetection
