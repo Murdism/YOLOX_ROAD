@@ -19,7 +19,7 @@ This fork preserves the full upstream YOLOX training and deployment stack and ad
 
 | EMT | ROAD Waymo |
 |:---:|:---:|
-| <img src="visualizations/emt/video_1_000001.jpg" width="460"> | <img src="visualizations/road_waymo/train_00052/00001.jpg" width="460"> |
+| <img src="assets/video_1_000001.jpg" width="460"> | <img src="assets/00009.jpg" width="460"> |
 
 Classes: **VulnerableRoadUser** (pedestrian/cyclist) · **Two-Wheeler** (motorbike/small motorised) · **Vehicle** (car/bus/van/emergency)
 

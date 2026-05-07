@@ -1,5 +1,6 @@
 # TODO: Update with exact module version
 numpy
+backports.tarfile; python_version < "3.12"
 torch>=1.7
 opencv_python
 loguru
@@ -10,9 +11,9 @@ ninja
 tabulate
 psutil
 tensorboard
+pycocotools>=2.0.2
 
 # verified versions
 # pycocotools corresponds to https://github.com/ppwwyyxx/cocoapi
-# pycocotools>=2.0.2
 # onnx>=1.13.0
 # onnx-simplifier==0.4.10
