@@ -11,7 +11,12 @@ from loguru import logger
 import torch
 import torch.backends.cudnn as cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
+import sys
+from pathlib import Path
 
+# Ensure the project root is on sys.path when the script is run directly
+# (Python adds tools/ not the project root when running tools/dump_predictions.py)
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from yolox.core import launch
 from yolox.exp import get_exp
 from yolox.utils import (

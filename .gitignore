@@ -6,6 +6,7 @@ visualizations/
 YOLOX_outputs/
 checkpoints/
 pretrained/
+results*/
 datasets/
 # do not ignore datasets under yolox/data
 !*yolox/data/datasets/
